@@ -4,16 +4,18 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun run index.ts"
+    "dev": "bun run index.ts",
+    "start": "bun run index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
+    "@types/bun": "latest",
     "typescript": "^5"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.82",
+    "ai": "^6.0.206",
     "dotenv": "^17.4.2",
-    "openai": "^6.34.0"
+    "zod": "^4.4.3"
   }
 }

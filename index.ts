@@ -1,4 +1,3 @@
-// Ali Imran created this
-import { main } from "./src/index.ts";
+import { main } from "./src/app.ts";
 
 await main();

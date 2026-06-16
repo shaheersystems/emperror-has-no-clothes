@@ -1,64 +1,79 @@
 # emperror-has-no-clothes
 
-A lightweight, modular AI agent framework built with **TypeScript** and **Bun**. It enables an LLM (specifically OpenAI models) to interact with the local filesystem through a secure, extensible tool-calling protocol.
+A lightweight, modular AI coding agent built with **TypeScript** and **Bun**. It
+lets an LLM interact with the local filesystem through native, structured tool
+calling powered by the [Vercel AI SDK](https://ai-sdk.dev) and Google Gemini.
 
 ## Features
 
-- **Agentic Loop**: Autonomous iterative execution with a safety cap (`MAX_TOOL_STEPS`) to prevent infinite recursion.
-- **Strict Tool Protocol**: Uses a custom `tool: NAME({...args})` text-based format for reliable parsing without relying on proprietary tool-calling features if preferred.
-- **Filesystem Tools**: Built-in support for reading, listing, and editing files.
-- **Sandboxed by Design**: Organized to support path restriction (via `path_sandbox.ts`).
-- **Optimized for Bun**: Fast startup and efficient execution using the Bun runtime.
+- **AI SDK core**: All model and tool-calling operations run through the Vercel
+  AI SDK (`streamText`, `tool`, `stepCountIs`), so tool calls are structured and
+  validated rather than parsed from free text.
+- **Streaming responses**: Assistant text and tool activity stream to the
+  terminal as they happen.
+- **Agentic loop**: Autonomous multi-step execution with a safety cap
+  (`MAX_STEPS`) to prevent runaway tool loops.
+- **Filesystem tools**: Built-in reading, listing, and editing of files.
+- **Sandboxed by design**: Every tool path is confined to the repo root via a
+  shared sandbox.
+- **Typed config**: Environment variables are validated with Zod at startup, so
+  misconfiguration fails fast with a clear message.
 
 ## Project Structure
 
 ```text
 ├── src/
-│   ├── agent/         # Main execution loop (run_loop.ts)
-│   ├── llm/           # OpenAI client integration
-│   ├── protocol/      # Tool invocation parsing logic
-│   ├── tools/         # Individual tool implementations & registry
-│   └── index.ts       # Main entry point
-├── index.ts           # Root entry point
+│   ├── config/        # Zod-validated environment configuration (env.ts)
+│   ├── ai/            # AI SDK integration
+│   │   ├── provider.ts  # Configured Google provider + model factory
+│   │   ├── prompts.ts   # System prompt
+│   │   └── agent.ts     # CodingAgent: streamText + tools + history
+│   ├── tools/         # AI SDK tools + shared sandbox
+│   │   ├── index.ts     # Tool registry exposed to the model
+│   │   ├── read-file.ts
+│   │   ├── list-files.ts
+│   │   ├── edit-file.ts
+│   │   └── sandbox.ts
+│   ├── cli/           # Interactive REPL + rendering (repl.ts)
+│   └── app.ts         # Composition root
+├── index.ts           # Entry point
 └── .env               # Configuration (API keys, settings)
 ```
+
+The layers depend inward: `cli` → `ai` → `tools`/`config`. The interface layer
+never talks to the model directly; it only drives `CodingAgent` and renders the
+events it emits.
 
 ## Prerequisites
 
 - [Bun](https://bun.sh) installed (v1.2.5 or later).
-- An OpenAI API Key.
+- A Google Generative AI (Google AI Studio) API key.
 
 ## Getting Started
 
-1.  **Clone and Install**:
+1.  **Install**:
     ```bash
     bun install
     ```
 
-2.  **Environment Setup**:  
-    Create a `.env` file in the root:
+2.  **Configure**: copy `.env.example` to `.env` and fill it in:
     ```bash
-    OPENAI_API_KEY=your_key_here
-    OPENAI_MODEL=gpt-4.1-mini # Optional: Default is gpt-4.1-mini
-    BASE_URL=                 # Optional: For proxying or alternative endpoints
+    GOOGLE_GENERATIVE_AI_API_KEY=your_key_here
+    GOOGLE_MODEL=gemini-2.5-flash   # optional, this is the default
+    BASE_URL=                       # optional, for a proxy/gateway
     ```
 
-3.  **Run the Agent**:
+3.  **Run**:
     ```bash
-    bun run index.ts
+    bun run dev
     ```
 
-## Tooling Protocol
+## Adding New Tools
 
-The assistant uses a unique line-based format to trigger actions:
+1.  Create a file in `src/tools/` and define the tool with the AI SDK's `tool()`
+    helper, using a Zod `inputSchema` and an `execute` function. Use
+    `resolveRepoPath` from `sandbox.ts` for any filesystem access.
+2.  Register it under a name in the `tools` object in `src/tools/index.ts`.
 
-`tool: read_file({"filename":"example.ts"})`
-
-The loop automatically catches these lines, executes the respective tool in `src/tools/`, and feeds the `tool_result(...)` back into the conversation for the next iteration.
-
-## Development
-
-### Adding New Tools
-1.  Create a new file in `src/tools/` defining your tool logic (`ToolDefinition`).
-2.  Export it and add it to `TOOL_REGISTRY` in `src/tools/registry.ts`.
-3.  The next agent run will automatically include its description in the system prompt.
+The model automatically receives the new tool's name, description, and schema on
+the next run.
