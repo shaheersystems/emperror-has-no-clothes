@@ -1,4 +1,5 @@
 import type { ToolSet } from "ai";
+import { createDirectoryTool } from "./create-directory.ts";
 import { createFileTool } from "./create-file.ts";
 import { editFileTool } from "./edit-file.ts";
 import { listFilesTool } from "./list-files.ts";
@@ -12,5 +13,6 @@ export const tools = {
   read_file: readFileTool,
   list_files: listFilesTool,
   create_file: createFileTool,
+  create_directory: createDirectoryTool,
   edit_file: editFileTool,
 } satisfies ToolSet;

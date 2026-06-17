@@ -1,23 +1,86 @@
-import { stdin, stdout } from "node:process";
-import { createInterface } from "node:readline/promises";
+import { stdout } from "node:process";
+import ora, { type Ora } from "ora";
 import { CodingAgent, type AgentEvent } from "../ai/agent.ts";
+import { env } from "../config/env.ts";
+import { readPrompt } from "./prompt-box.ts";
+import {
+  banner,
+  describeToolCall,
+  describeToolResult,
+  palette,
+  whimsy,
+} from "./theme.ts";
 
-function renderEvent(event: AgentEvent): void {
-  switch (event.type) {
-    case "text":
-      stdout.write(event.text);
-      break;
-    case "tool-call":
-      stdout.write(`\n[tool] ${event.toolName} ${JSON.stringify(event.input)}\n`);
-      break;
-    case "tool-result":
-      stdout.write(`[result] ${event.toolName} ${JSON.stringify(event.output)}\n`);
-      break;
-    case "error": {
-      const message =
-        event.error instanceof Error ? event.error.message : String(event.error);
-      stdout.write(`\n[error] ${message}\n`);
-      break;
+/**
+ * Renders a single agent turn to the terminal. It owns one spinner that shows a
+ * whimsical "working" verb between actions, swaps to a human-readable status
+ * while a tool runs, and steps aside so streamed assistant text prints cleanly.
+ */
+class TurnRenderer {
+  private readonly spinner: Ora;
+  private textOpen = false;
+
+  constructor() {
+    this.spinner = ora({ text: whimsy(), spinner: "dots", color: "magenta" });
+  }
+
+  /** Begin the turn in the "thinking" state. */
+  start(): void {
+    this.spinner.start();
+  }
+
+  handle = (event: AgentEvent): void => {
+    switch (event.type) {
+      case "text": {
+        if (!event.text) break;
+        // Assistant prose: drop the spinner and stream the text inline.
+        if (this.spinner.isSpinning) this.spinner.stop();
+        if (!this.textOpen) {
+          stdout.write(palette.accent("\n● ") + palette.muted("assistant\n"));
+          this.textOpen = true;
+        }
+        stdout.write(palette.assistant(event.text));
+        break;
+      }
+
+      case "tool-call": {
+        this.closeText();
+        const status = describeToolCall(event.toolName, event.input);
+        if (!this.spinner.isSpinning) this.spinner.start();
+        this.spinner.text = status;
+        break;
+      }
+
+      case "tool-result": {
+        const { ok, text } = describeToolResult(event.toolName, event.output);
+        // Persist the finished action as a stable line, then return to thinking.
+        if (ok) this.spinner.succeed(text);
+        else this.spinner.warn(text);
+        this.spinner.start(whimsy());
+        break;
+      }
+
+      case "error": {
+        const message =
+          event.error instanceof Error ? event.error.message : String(event.error);
+        this.closeText();
+        if (this.spinner.isSpinning) this.spinner.fail(palette.err(message));
+        else stdout.write(palette.err(`\n✖ ${message}\n`));
+        break;
+      }
+    }
+  };
+
+  /** Tear down the turn, clearing any lingering spinner or open text block. */
+  finish(): void {
+    if (this.spinner.isSpinning) this.spinner.stop();
+    this.closeText();
+  }
+
+  private closeText(): void {
+    if (this.textOpen) {
+      stdout.write("\n");
+      this.textOpen = false;
     }
   }
 }
@@ -27,32 +90,31 @@ function renderEvent(event: AgentEvent): void {
  * agent, whose streamed events are rendered to the terminal.
  */
 export async function startRepl(): Promise<void> {
-  const rl = createInterface({ input: stdin, output: stdout });
   const agent = new CodingAgent();
 
-  stdout.write("Coding agent ready. Type 'exit' or 'quit' to leave.\n");
+  stdout.write(banner(env.GOOGLE_MODEL));
 
   while (true) {
-    let userInput: string;
-    try {
-      userInput = (await rl.question("\nYou: ")).trim();
-    } catch {
-      // stdin closed (EOF / Ctrl+D / end of piped input): exit gracefully.
-      break;
-    }
+    // `null` means the user asked to quit (Ctrl+C / EOF).
+    const line = await readPrompt();
+    if (line === null) break;
+
+    const userInput = line.trim();
     const command = userInput.toLowerCase();
     if (command === "exit" || command === "quit") break;
     if (!userInput) continue;
 
-    stdout.write("Assistant: ");
+    const renderer = new TurnRenderer();
+    renderer.start();
     try {
-      await agent.send(userInput, renderEvent);
+      await agent.send(userInput, renderer.handle);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      stdout.write(`\n[error] ${message}\n`);
+      renderer.handle({ type: "error", error: err });
+    } finally {
+      renderer.finish();
     }
     stdout.write("\n");
   }
 
-  rl.close();
+  stdout.write(palette.muted("\n✦ see you next time\n"));
 }
